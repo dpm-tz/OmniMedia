@@ -372,7 +372,20 @@ fn run_session(
         let raw_path = cap.path().to_path_buf();
         match cap.join() {
             Ok(()) => {
-                sys_audio_file = Some(raw_path);
+                // Verify the file actually landed on disk before we promise
+                // it to the merge step. Windows file-system drivers and
+                // real-time AV scanners can delay or quarantine files.
+                match verified_audio_file(&raw_path) {
+                    Some(p) => sys_audio_file = Some(p),
+                    None => {
+                        tracing::warn!(path = %raw_path.display(), "loopback audio file missing after successful capture");
+                        let _ = app_warn(
+                            &app,
+                            "System audio file was not found on disk after capture completed. \
+                             Check your antivirus / cloud-sync settings for the output folder.",
+                        );
+                    }
+                }
             }
             Err(e) => {
                 tracing::warn!(%e, "WASAPI loopback capture worker failed");
@@ -380,7 +393,7 @@ fn run_session(
                     &app,
                     &format!("System audio capture stopped early: {e}"),
                 );
-                let _ = std::fs::remove_file(raw_path);
+                let _ = std::fs::remove_file(&raw_path);
             }
         }
     }
@@ -390,7 +403,17 @@ fn run_session(
         let raw_path = cap.path().to_path_buf();
         match cap.join() {
             Ok(()) => {
-                mic_audio_file = Some(raw_path);
+                match verified_audio_file(&raw_path) {
+                    Some(p) => mic_audio_file = Some(p),
+                    None => {
+                        tracing::warn!(path = %raw_path.display(), "mic audio file missing after successful capture");
+                        let _ = app_warn(
+                            &app,
+                            "Microphone audio file was not found on disk after capture completed. \
+                             Check your antivirus / cloud-sync settings for the output folder.",
+                        );
+                    }
+                }
             }
             Err(e) => {
                 tracing::warn!(%e, "WASAPI microphone capture worker failed");
@@ -398,7 +421,7 @@ fn run_session(
                     &app,
                     &format!("Microphone capture stopped early: {e}"),
                 );
-                let _ = std::fs::remove_file(raw_path);
+                let _ = std::fs::remove_file(&raw_path);
             }
         }
     }
@@ -586,6 +609,9 @@ fn capture_system_audio_loopback(
     }
     out.flush()
         .map_err(|e| format!("flush loopback file: {e}"))?;
+    // Ensure data reaches the disk so merge_audio_tracks sees the file.
+    let inner = out.into_inner().map_err(|e| format!("into_inner loopback: {e}"))?;
+    inner.sync_all().map_err(|e| format!("sync loopback file: {e}"))?;
     let _ = audio_client.stop_stream();
     tracing::info!(bytes = total_bytes, "WASAPI loopback capture stopped");
     Ok(())
@@ -724,6 +750,8 @@ fn capture_wasapi_mic(
     }
     out.flush()
         .map_err(|e| format!("flush capture file: {e}"))?;
+    let inner = out.into_inner().map_err(|e| format!("into_inner mic: {e}"))?;
+    inner.sync_all().map_err(|e| format!("sync mic file: {e}"))?;
     let _ = audio_client.stop_stream();
     tracing::info!(bytes = total_bytes, "WASAPI microphone capture stopped");
     Ok(())
@@ -751,6 +779,45 @@ fn find_capture_device_by_name(
     enumerator
         .get_default_device(&Direction::Capture)
         .map_err(|e| format!("get default capture device: {e}"))
+}
+
+/// Verify an audio file exists on disk and has at least a minimal size.
+/// Retries briefly to tolerate file-system flush delays on Windows.
+fn verified_audio_file(path: &Path) -> Option<PathBuf> {
+    for attempt in 0..4 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        match std::fs::metadata(path) {
+            Ok(m) if m.is_file() && m.len() > 0 => {
+                tracing::debug!(
+                    path = %path.display(),
+                    size = m.len(),
+                    attempt,
+                    "audio file verified"
+                );
+                return Some(path.to_path_buf());
+            }
+            Ok(m) => {
+                tracing::debug!(
+                    path = %path.display(),
+                    is_file = m.is_file(),
+                    size = m.len(),
+                    attempt,
+                    "audio file exists but is empty, retrying"
+                );
+            }
+            Err(e) => {
+                tracing::debug!(
+                    path = %path.display(),
+                    %e,
+                    attempt,
+                    "audio file not found, retrying"
+                );
+            }
+        }
+    }
+    None
 }
 
 fn merge_audio_tracks(

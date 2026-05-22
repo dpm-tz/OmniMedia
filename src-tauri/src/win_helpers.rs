@@ -108,11 +108,11 @@ fn install_permission_handler(webview: &tauri::webview::PlatformWebview) -> Resu
     use webview2_com::PermissionRequestedEventHandler;
 
     // The CoreWebView2 instance can be momentarily unavailable right after
-    // window creation; retry a few times before giving up.
+    // window creation; retry with increasing back-off before giving up.
     let core = unsafe {
         let mut last_err: Option<String> = None;
         let mut got: Option<ICoreWebView2> = None;
-        for _ in 0..20 {
+        for i in 0..40 {
             match webview.controller().CoreWebView2() {
                 Ok(c) => {
                     got = Some(c);
@@ -120,13 +120,13 @@ fn install_permission_handler(webview: &tauri::webview::PlatformWebview) -> Resu
                 }
                 Err(e) => {
                     last_err = Some(format!("{e}"));
-                    std::thread::sleep(Duration::from_millis(50));
+                    std::thread::sleep(Duration::from_millis(if i < 10 { 50 } else { 100 }));
                 }
             }
         }
         got.ok_or_else(|| {
             format!(
-                "CoreWebView2 not ready after 1s: {}",
+                "CoreWebView2 not ready after retries: {}",
                 last_err.unwrap_or_default()
             )
         })?

@@ -57,6 +57,11 @@ pub fn open_webcam_overlay(app: AppHandle) -> AppResult<()> {
     .build()
     .map_err(|e| AppError::Other(anyhow::anyhow!("create webcam-overlay: {e}")))?;
 
+    // Give WebView2 a moment to finish controller init before installing
+    // the camera permission handler.  Without this, the with_webview
+    // closure often cannot obtain CoreWebView2 and the permission handler
+    // is never registered, causing getUserMedia to be denied.
+    std::thread::sleep(std::time::Duration::from_millis(300));
     configure_webcam_window(&window);
 
     #[cfg(target_os = "windows")]
@@ -72,7 +77,12 @@ pub fn open_webcam_overlay(app: AppHandle) -> AppResult<()> {
 #[tauri::command]
 pub fn prepare_webcam_overlay(app: AppHandle) -> AppResult<()> {
     if let Some(w) = app.get_webview_window(W_WEBCAM) {
-        configure_webcam_window(&w);
+        if let Err(e) = try_configure_webcam_window(&w) {
+            tracing::warn!("prepare_webcam_overlay: {e}");
+            return Err(AppError::Other(anyhow::anyhow!(
+                "Camera permissions could not be configured: {e}"
+            )));
+        }
     }
     Ok(())
 }
@@ -91,14 +101,20 @@ pub fn webcam_is_open(app: AppHandle) -> AppResult<bool> {
 }
 
 fn configure_webcam_window(window: &WebviewWindow) {
+    let _ = try_configure_webcam_window(window);
+}
+
+fn try_configure_webcam_window(window: &WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        if let Err(e) = crate::win_helpers::configure_webview_media(window) {
+        crate::win_helpers::configure_webview_media(window).map_err(|e| {
             tracing::warn!("webcam media permissions: {e}");
-        }
+            e
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = window;
+        Ok(())
     }
 }
