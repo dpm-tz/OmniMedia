@@ -1,0 +1,18 @@
+Bundled FFmpeg binaries are not stored in git. They are produced by:
+
+  npm run setup:ffmpeg
+
+…which downloads upstream builds (GPL-licensed) before `npm run tauri build`.
+
+• Windows / Linux packages: https://github.com/BtbN/FFmpeg-Builds
+• macOS package: https://evermeet.cx/ffmpeg/
+
+FFmpeg is licensed under the GNU GPL. Source and licensing:
+https://ffmpeg.org/legal.html
+
+
+
+kwa window hii link hapa 
+https://www.gyan.dev/ffmpeg/builds/
+hagua hii 👇
+👉 ffmpeg-release-essentials.zip

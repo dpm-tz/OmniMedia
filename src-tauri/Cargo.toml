@@ -1,0 +1,64 @@
+[package]
+name = "omnimedia"
+version = "0.1.0"
+description = "OmniMedia - cross-platform recorder, editor, and image tool"
+authors = ["David"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix avoids a Windows linker collision with the bin name.
+# See https://github.com/rust-lang/cargo/issues/8519
+name = "omnimedia_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- Tauri core + plugins ---------------------------------------------------
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+
+# --- Serialization (every command argument / return crosses serde) ---------
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- Async + concurrency ----------------------------------------------------
+# `rt-multi-thread` lets us offload encoding work off the Tauri command thread.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "process"] }
+parking_lot = "0.12"
+once_cell = "1"
+
+# --- Errors -----------------------------------------------------------------
+thiserror = "1"
+anyhow = "1"
+
+# --- Logging ----------------------------------------------------------------
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- Misc utilities ---------------------------------------------------------
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+which = "6"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# Windows: WGC via `windows-capture` + win32 helpers for capture-exclusion.
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Foundation"] }
+windows-core = "0.61"
+windows-capture = "1.5"
+wasapi = "0.23"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+] }
