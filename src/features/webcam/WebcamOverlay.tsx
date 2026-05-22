@@ -68,23 +68,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 async function getCameraStreamWithRetry(): Promise<MediaStream> {
   // Permission state propagates asynchronously after the Rust backend installs
-  // the WebView2 handler. Retry transient denials.
-  const delays = [0, 250, 700, 1500];
+  // the WebView2 handler. Start with a delay so the handler has time to
+  // register, then retry transient denials with increasing back-off.
+  const delays = [400, 600, 1200, 2000, 3000];
   let lastError: unknown;
   for (const delay of delays) {
-    if (delay > 0) await sleep(delay);
+    await sleep(delay);
     try {
-      await api.webcam?.prepare?.().catch(() => {});
+      // Ask the Rust backend to (re-)install the permission handler.
+      // Log failures instead of silently swallowing them.
+      try {
+        await api.webcam?.prepare?.();
+      } catch (prepErr) {
+        console.warn("[webcam] prepare_webcam_overlay failed:", prepErr);
+      }
       return await withTimeout(
         navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,
         }),
-        4000,
+        5000,
         "getUserMedia",
       );
     } catch (e) {
       lastError = e;
+      console.warn(`[webcam] getUserMedia attempt failed (retry in next cycle):`, e);
       const name = e instanceof DOMException ? e.name : "";
       if (
         name !== "NotAllowedError" &&
